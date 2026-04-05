@@ -14,6 +14,7 @@ SharpDbg for VS Code adds an open source managed code debugger for .NET Framewor
 - The `ms-dotnettools.vscode-dotnet-runtime` extension
 - A .NET application you want to debug
 - .NET 10 runtime to launch SharpDbg itself if you already have it installed
+- Visual Studio Build Tools with MSBuild for .NET Framework project files on Windows
 
 ## Usage
 
@@ -32,8 +33,7 @@ Example:
       "name": "Launch with SharpDbg",
       "type": "sharpdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/bin/Debug/YourApp.dll",
-      "cwd": "${workspaceFolder}",
+      "projectPath": "${workspaceFolder}/YourApp.csproj",
       "stopAtEntry": false
     },
     {
@@ -61,6 +61,7 @@ You can customize SharpDbg through VS Code settings:
 ## Notes
 
 SharpDbg first uses an installed .NET 10 host when it finds one. If no suitable host is available, it falls back to the .NET runtime install tool so the debugger can still start without requiring a manual install.
+Launch configurations can use either `program` or `projectPath`. If you point SharpDbg at a project file, SharpDbg reads the project XML to decide how to build it: SDK-style projects use `dotnet`, while legacy .NET Framework projects on Windows use Visual Studio Build Tools/MSBuild when available.
 
 ## License
 

@@ -10,10 +10,12 @@
 
 Install the .NET 10 SDK before working on this repository.
 The extension launcher probes for an installed .NET 10 host first, then falls back to the runtime tool only when needed.
+If you are testing legacy .NET Framework `projectPath` resolution on Windows, install Visual Studio Build Tools so `vswhere.exe` can find MSBuild.
 
 ## Common commands
 
 - `npm run sync-version` updates `package.json` from the current GitVersion result
+- `npm run test:unit` runs the Node-based project XML classifier tests
 - `npm run build:sharpdbg` publishes SharpDbg into `dist/sharpdbg`
 - `npm run test:integration` runs the VS Code integration test suite
 - `npm run check` validates the JavaScript files with `node --check`
@@ -24,14 +26,16 @@ The extension launcher probes for an installed .NET 10 host first, then falls ba
 
 1. Make your changes.
 2. Run `npm run check`.
-3. Run `npm run build:sharpdbg`.
-4. Run `npm run test:integration` before merging debugger changes.
-5. Run `./dist.all.sh` before a release.
-6. Verify the generated files in `dist/sharpdbg` if your change affects packaging or startup.
+3. Run `npm run test:unit`.
+4. Run `npm run build:sharpdbg`.
+5. Run `npm run test:integration` before merging debugger changes.
+6. Run `./dist.all.sh` before a release.
+7. Verify the generated files in `dist/sharpdbg` if your change affects packaging or startup.
 
 ## Submodule updates
 
 If you need a newer SharpDbg version, update the `sharpdbg` submodule and make sure the extension still launches the published CLI correctly.
+The unit suite includes a mocked legacy `projectPath` resolver test so macOS and Linux can validate the Windows MSBuild selection logic without requiring Visual Studio.
 
 ## Versioning
 

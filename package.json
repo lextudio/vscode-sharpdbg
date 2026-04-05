@@ -32,11 +32,12 @@
     "sync-version": "node scripts/sync-version.js",
     "build:sharpdbg": "node scripts/publish-sharpdbg.js",
     "build:fixture": "dotnet build test/fixtures/DebuggeeApp/DebuggeeApp.csproj",
+    "test:unit": "node --test test/unit/*.test.js",
     "test:integration:prepare": "npm run sync-version && npm run build:sharpdbg && npm run build:fixture",
     "test:integration": "npm run test:integration:prepare && vscode-test",
     "package:vsix": "./dist.all.sh",
     "publish:vsix": "./publish.sh",
-    "check": "node --check src/extension.js && node --check scripts/publish-sharpdbg.js && node --check scripts/sync-version.js",
+    "check": "node --check src/extension.js && node --check src/project-kind.js && node --check src/project-resolver.js && node --check scripts/publish-sharpdbg.js && node --check scripts/sync-version.js",
     "vscode:prepublish": "npm run sync-version && npm run build:sharpdbg"
   },
   "devDependencies": {
@@ -93,13 +94,26 @@
         ],
         "configurationAttributes": {
           "launch": {
-            "required": [
-              "program"
+            "oneOf": [
+              {
+                "required": [
+                  "program"
+                ]
+              },
+              {
+                "required": [
+                  "projectPath"
+                ]
+              }
             ],
             "properties": {
               "program": {
                 "type": "string",
                 "description": "Path to the managed application to debug."
+              },
+              "projectPath": {
+                "type": "string",
+                "description": "Path to a .csproj, .vbproj, or .fsproj file to build and debug."
               },
               "args": {
                 "type": "array",
@@ -147,8 +161,7 @@
             "name": "Launch SharpDbg",
             "type": "sharpdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/bin/Debug/YourApp.dll",
-            "cwd": "${workspaceFolder}",
+            "projectPath": "${workspaceFolder}/YourApp.csproj",
             "stopAtEntry": false
           },
           {

@@ -38,49 +38,72 @@ function waitForSessionTermination(session) {
   });
 }
 
+async function configureSharpDbgForFixture() {
+  const dotnetExecutable = cp.execFileSync('which', ['dotnet'], { encoding: 'utf8' }).trim();
+  const cliDll = path.resolve(__dirname, '..', '..', 'dist', 'sharpdbg', 'SharpDbg.Cli.dll');
+  assert.ok(fs.existsSync(cliDll), `SharpDbg CLI should exist at ${cliDll}`);
+
+  await vscode.workspace.getConfiguration('sharpdbg').update('adapterExecutable', dotnetExecutable, vscode.ConfigurationTarget.Workspace);
+  await vscode.workspace.getConfiguration('sharpdbg').update('adapterArgs', [cliDll, '--interpreter=vscode'], vscode.ConfigurationTarget.Workspace);
+}
+
+async function launchFixtureApp(config) {
+  const extension = vscode.extensions.getExtension('lextudio.vscode-sharpdbg');
+  assert.ok(extension, 'extension should be present');
+  await extension.activate();
+
+  const workspaceFolder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  assert.ok(workspaceFolder, 'workspace folder should be available');
+
+  const workspaceSettingsDir = path.join(workspaceFolder.uri.fsPath, '.vscode');
+
+  try {
+    await configureSharpDbgForFixture();
+
+    const started = await vscode.debug.startDebugging(workspaceFolder, config);
+    assert.strictEqual(started, true, 'debug session should start');
+
+    const session = await waitForDebugSession('sharpdbg');
+    assert.strictEqual(session.type, 'sharpdbg');
+
+    await vscode.debug.stopDebugging(session);
+    await waitForSessionTermination(session);
+  } finally {
+    fs.rmSync(workspaceSettingsDir, { recursive: true, force: true });
+  }
+}
+
 suite('SharpDbg integration', () => {
-  test('launches the fixture app and responds to DAP requests', async function () {
+  test('launches the fixture app from program and responds to DAP requests', async function () {
     this.timeout(120000);
-
-    const extension = vscode.extensions.getExtension('lextudio.vscode-sharpdbg');
-    assert.ok(extension, 'extension should be present');
-    await extension.activate();
-
-    const workspaceFolder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
-    assert.ok(workspaceFolder, 'workspace folder should be available');
 
     const fixtureDir = path.resolve(__dirname, '..', 'fixtures', 'DebuggeeApp');
     const program = path.join(fixtureDir, 'bin', 'Debug', 'net10.0', 'DebuggeeApp.dll');
     assert.ok(fs.existsSync(program), `fixture build output should exist at ${program}`);
 
-    const dotnetExecutable = cp.execFileSync('which', ['dotnet'], { encoding: 'utf8' }).trim();
-    const cliDll = path.resolve(__dirname, '..', '..', 'dist', 'sharpdbg', 'SharpDbg.Cli.dll');
-    assert.ok(fs.existsSync(cliDll), `SharpDbg CLI should exist at ${cliDll}`);
+    await launchFixtureApp({
+      type: 'sharpdbg',
+      request: 'launch',
+      name: 'SharpDbg integration launch from program',
+      program,
+      cwd: fixtureDir,
+      stopAtEntry: false
+    });
+  });
 
-    const workspaceSettingsDir = path.join(workspaceFolder.uri.fsPath, '.vscode');
+  test('launches the fixture app from projectPath and responds to DAP requests', async function () {
+    this.timeout(120000);
 
-    try {
-      await vscode.workspace.getConfiguration('sharpdbg').update('adapterExecutable', dotnetExecutable, vscode.ConfigurationTarget.Workspace);
-      await vscode.workspace.getConfiguration('sharpdbg').update('adapterArgs', [cliDll, '--interpreter=vscode'], vscode.ConfigurationTarget.Workspace);
+    const fixtureDir = path.resolve(__dirname, '..', 'fixtures', 'DebuggeeApp');
+    const projectPath = path.join(fixtureDir, 'DebuggeeApp.csproj');
+    assert.ok(fs.existsSync(projectPath), `fixture project should exist at ${projectPath}`);
 
-      const started = await vscode.debug.startDebugging(workspaceFolder, {
-        type: 'sharpdbg',
-        request: 'launch',
-        name: 'SharpDbg integration launch',
-        program,
-        cwd: fixtureDir,
-        stopAtEntry: false
-      });
-
-      assert.strictEqual(started, true, 'debug session should start');
-
-      const session = await waitForDebugSession('sharpdbg');
-      assert.strictEqual(session.type, 'sharpdbg');
-
-      await vscode.debug.stopDebugging(session);
-      await waitForSessionTermination(session);
-    } finally {
-      fs.rmSync(workspaceSettingsDir, { recursive: true, force: true });
-    }
+    await launchFixtureApp({
+      type: 'sharpdbg',
+      request: 'launch',
+      name: 'SharpDbg integration launch from projectPath',
+      projectPath,
+      stopAtEntry: false
+    });
   });
 });

@@ -1,0 +1,3 @@
+[submodule "sharpdbg"]
+	path = sharpdbg
+	url = https://github.com/lextudio/sharpdbg.git

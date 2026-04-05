@@ -1,2 +1,73 @@
 # vscode-sharpdbg
-Integrating SharpDbg into VS Code
+
+SharpDbg for VS Code adds an open source managed code debugger for .NET Framework, .NET Core, and .NET applications.
+
+## Features
+
+- Launch .NET applications under SharpDbg
+- Attach to a running process
+- Use the `sharpdbg` debug type in `launch.json`
+
+## Requirements
+
+- VS Code
+- The `ms-dotnettools.vscode-dotnet-runtime` extension
+- A .NET application you want to debug
+- .NET 10 runtime to launch SharpDbg itself if you already have it installed
+
+## Usage
+
+1. Install this extension.
+2. Open a .NET workspace.
+3. Create or update `.vscode/launch.json`.
+4. Choose `sharpdbg` as the debugger type.
+
+Example:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch with SharpDbg",
+      "type": "sharpdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/Debug/YourApp.dll",
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Attach with SharpDbg",
+      "type": "sharpdbg",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ]
+}
+```
+
+## Configuration
+
+You can customize SharpDbg through VS Code settings:
+
+- `sharpdbg.runtimeVersion`
+- `sharpdbg.cliDllPath`
+- `sharpdbg.dotnetPath`
+- `sharpdbg.adapterExecutable`
+- `sharpdbg.adapterArgs`
+- `sharpdbg.adapterCwd`
+- `sharpdbg.adapterEnv`
+
+## Notes
+
+SharpDbg first uses an installed .NET 10 host when it finds one. If no suitable host is available, it falls back to the .NET runtime install tool so the debugger can still start without requiring a manual install.
+
+## License
+
+This project, vscode-sharpdbg, is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+SharpDbg itself is licensed under the MIT License as well, created by Matt Parker and the SharpDbg contributors. This extension ships with a custom build with extra features from LeXtudio Inc.
+
+## Copyright
+
+Copyright (c) 2026 LeXtudio Inc. All rights reserved.

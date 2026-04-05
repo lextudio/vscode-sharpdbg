@@ -1,0 +1,144 @@
+{
+  "name": "vscode-sharpdbg",
+  "displayName": "SharpDbg for VS Code",
+  "description": "Use SharpDbg as a VS Code debugger for .NET Framework and .NET Core.",
+  "version": "0.0.1",
+  "publisher": "lextudio",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "extensionDependencies": [
+    "ms-dotnettools.vscode-dotnet-runtime"
+  ],
+  "categories": [
+    "Debuggers"
+  ],
+  "activationEvents": [
+    "onDebugInitialConfigurations:sharpdbg",
+    "onDebugResolve:sharpdbg"
+  ],
+  "main": "./src/extension.js",
+  "scripts": {
+    "build:sharpdbg": "node scripts/publish-sharpdbg.js",
+    "check": "node --check src/extension.js && node --check scripts/publish-sharpdbg.js",
+    "vscode:prepublish": "npm run build:sharpdbg"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "SharpDbg",
+      "properties": {
+        "sharpdbg.runtimeVersion": {
+          "type": "string",
+          "default": "10.0",
+          "description": "The preferred .NET runtime version to use when no matching system host is available."
+        },
+        "sharpdbg.cliDllPath": {
+          "type": "string",
+          "default": "dist/sharpdbg/SharpDbg.Cli.dll",
+          "description": "Path to the framework-dependent SharpDbg CLI DLL."
+        },
+        "sharpdbg.dotnetPath": {
+          "type": "string",
+          "default": "dotnet",
+          "description": "Dotnet host command to probe for an installed runtime before falling back to runtime acquisition."
+        },
+        "sharpdbg.adapterExecutable": {
+          "type": "string",
+          "description": "Optional custom debug adapter executable or command."
+        },
+        "sharpdbg.adapterArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional custom arguments for a custom debug adapter executable."
+        },
+        "sharpdbg.adapterCwd": {
+          "type": "string",
+          "description": "Optional working directory for a custom debug adapter executable."
+        },
+        "sharpdbg.adapterEnv": {
+          "type": "object",
+          "description": "Optional environment variables for a custom debug adapter executable."
+        }
+      }
+    },
+    "debuggers": [
+      {
+        "type": "sharpdbg",
+        "label": "SharpDbg",
+        "languages": [
+          "csharp"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the managed application to debug."
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Command-line arguments passed to the target application."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the target application."
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables for the target application."
+              },
+              "stopAtEntry": {
+                "type": "boolean",
+                "description": "Break at the application's entry point.",
+                "default": false
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "processId"
+            ],
+            "properties": {
+              "processId": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "The process ID to attach to."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "name": "Launch SharpDbg",
+            "type": "sharpdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/Debug/YourApp.dll",
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false
+          },
+          {
+            "name": "Attach to Process",
+            "type": "sharpdbg",
+            "request": "attach",
+            "processId": "${command:pickProcess}"
+          }
+        ]
+      }
+    ]
+  }
+}

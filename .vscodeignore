@@ -2,5 +2,13 @@
 .github/**
 .vscode/**
 **/*.map
-sharpdbg/tests/**
-sharpdbg/iac/**
+.gitignore
+.gitmodules
+*.sh
+CONTRIBUTING.md
+GitVersion.yml
+dotnet-tools.json
+.vscode-test.mjs
+scripts/**
+test/**
+sharpdbg/**

@@ -28,7 +28,7 @@ class SharpDbgConfigurationProvider {
         name: 'Launch SharpDbg',
         type: 'sharpdbg',
         request: 'launch',
-        program: '${workspaceFolder}/bin/Debug/net8.0/YourApp.dll',
+        program: '${workspaceFolder}/bin/Debug/net10.0/YourApp.dll',
         cwd: '${workspaceFolder}',
         stopAtEntry: false
       },

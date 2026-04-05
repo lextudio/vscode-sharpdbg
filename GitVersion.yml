@@ -1,0 +1,3 @@
+workflow: GitHubFlow/v1
+tag-prefix: '[vV]'
+commit-message-incrementing: Enabled

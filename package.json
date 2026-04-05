@@ -2,8 +2,17 @@
   "name": "vscode-sharpdbg",
   "displayName": "SharpDbg for VS Code",
   "description": "Use SharpDbg as a VS Code debugger for .NET Framework and .NET Core.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "lextudio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lextudio/vscode-sharpdbg.git"
+  },
+  "homepage": "https://github.com/lextudio/vscode-sharpdbg",
+  "bugs": {
+    "url": "https://github.com/lextudio/vscode-sharpdbg/issues"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -19,9 +28,19 @@
   ],
   "main": "./src/extension.js",
   "scripts": {
+    "sync-version": "node scripts/sync-version.js",
     "build:sharpdbg": "node scripts/publish-sharpdbg.js",
-    "check": "node --check src/extension.js && node --check scripts/publish-sharpdbg.js",
-    "vscode:prepublish": "npm run build:sharpdbg"
+    "build:fixture": "dotnet build test/fixtures/DebuggeeApp/DebuggeeApp.csproj",
+    "test:integration:prepare": "npm run sync-version && npm run build:sharpdbg && npm run build:fixture",
+    "test:integration": "npm run test:integration:prepare && vscode-test",
+    "package:vsix": "./dist.all.sh",
+    "publish:vsix": "./publish.sh",
+    "check": "node --check src/extension.js && node --check scripts/publish-sharpdbg.js && node --check scripts/sync-version.js",
+    "vscode:prepublish": "npm run sync-version && npm run build:sharpdbg"
+  },
+  "devDependencies": {
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
   },
   "contributes": {
     "configuration": {

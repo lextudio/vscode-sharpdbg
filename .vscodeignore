@@ -5,10 +5,13 @@
 .gitignore
 .gitmodules
 *.sh
+*.sln
+*.ps1
 CONTRIBUTING.md
 GitVersion.yml
 dotnet-tools.json
 .vscode-test.mjs
 scripts/**
 test/**
+src/**
 sharpdbg/**

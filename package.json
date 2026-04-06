@@ -1,6 +1,6 @@
 {
-  "name": "vscode-sharpdbg",
-  "displayName": "SharpDbg for VS Code",
+  "name": "sharpdbg",
+  "displayName": "SharpDbg for .NET",
   "description": "Use SharpDbg as a VS Code debugger for .NET Framework and .NET Core.",
   "version": "0.1.0",
   "publisher": "lextudio",
@@ -24,25 +24,28 @@
     "Debuggers"
   ],
   "activationEvents": [
+    "onDebug",
     "onDebugInitialConfigurations:sharpdbg",
     "onDebugResolve:sharpdbg"
   ],
-  "main": "./src/extension.js",
+  "main": "./dist/extension.js",
   "scripts": {
     "sync-version": "node scripts/sync-version.js",
+    "build:extension": "node scripts/build-extension.js",
     "build:sharpdbg": "node scripts/publish-sharpdbg.js",
     "build:fixture": "dotnet build test/fixtures/DebuggeeApp/DebuggeeApp.csproj",
     "test:unit": "node --test test/unit/*.test.js",
-    "test:integration:prepare": "npm run sync-version && npm run build:sharpdbg && npm run build:fixture",
+    "test:integration:prepare": "npm run sync-version && npm run build:extension && npm run build:sharpdbg && npm run build:fixture",
     "test:integration": "npm run test:integration:prepare && vscode-test",
     "package:vsix": "./dist.all.sh",
     "publish:vsix": "./publish.sh",
-    "check": "node --check src/extension.js && node --check src/project-kind.js && node --check src/project-resolver.js && node --check scripts/publish-sharpdbg.js && node --check scripts/sync-version.js",
-    "vscode:prepublish": "npm run sync-version && npm run build:sharpdbg"
+    "check": "node --check src/extension.js && node --check src/project-kind.js && node --check src/project-resolver.js && node --check scripts/build-extension.js && node --check scripts/publish-sharpdbg.js && node --check scripts/sync-version.js",
+    "vscode:prepublish": "npm run sync-version && npm run build:extension && npm run build:sharpdbg"
   },
   "devDependencies": {
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.3"
   },
   "overrides": {
     "diff": "^8.0.3",
@@ -59,7 +62,7 @@
         },
         "sharpdbg.cliDllPath": {
           "type": "string",
-          "default": "dist/sharpdbg/SharpDbg.Cli.dll",
+          "default": "dist/sharpdbg/net10.0/SharpDbg.Cli.dll",
           "description": "Path to the framework-dependent SharpDbg CLI DLL."
         },
         "sharpdbg.dotnetPath": {
@@ -134,6 +137,16 @@
                 "type": "object",
                 "description": "Environment variables for the target application."
               },
+              "runtimeFlavor": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "coreclr",
+                  "desktopClr"
+                ],
+                "description": "Which managed runtime startup path SharpDbg should use. Defaults to auto; projectPath launches set this automatically.",
+                "default": "auto"
+              },
               "stopAtEntry": {
                 "type": "boolean",
                 "description": "Break at the application's entry point.",
@@ -160,19 +173,27 @@
             }
           }
         },
-        "initialConfigurations": [
+        "configurationSnippets": [
           {
-            "name": "Launch SharpDbg",
-            "type": "sharpdbg",
-            "request": "launch",
-            "projectPath": "${workspaceFolder}/YourApp.csproj",
-            "stopAtEntry": false
+            "label": "SharpDbg: Launch from projectPath",
+            "description": "Launch a .NET application by pointing SharpDbg at a project file.",
+            "body": {
+              "type": "sharpdbg",
+              "request": "launch",
+              "name": "Launch SharpDbg from projectPath",
+              "projectPath": "${workspaceFolder}/YourApp.csproj",
+              "stopAtEntry": false
+            }
           },
           {
-            "name": "Attach to Process",
-            "type": "sharpdbg",
-            "request": "attach",
-            "processId": "${command:pickProcess}"
+            "label": "SharpDbg: Attach to process",
+            "description": "Attach SharpDbg to a running process.",
+            "body": {
+              "type": "sharpdbg",
+              "request": "attach",
+              "name": "Attach to Process",
+              "processId": "${command:pickProcess}"
+            }
           }
         ]
       }

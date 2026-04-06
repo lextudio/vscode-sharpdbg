@@ -2,25 +2,34 @@
 
 const cp = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 const { resolveProgramFromProjectPath: resolveProjectFromProjectPath } = require('./project-resolver');
 
+const sessionLogState = new Map();
+
 function activate(context) {
-  const descriptorFactory = new SharpDbgAdapterDescriptorFactory(context);
-  const configurationProvider = new SharpDbgConfigurationProvider(context);
+  const outputChannel = vscode.window.createOutputChannel('SharpDbg');
+  const descriptorFactory = new SharpDbgAdapterDescriptorFactory(context, outputChannel);
+  const configurationProvider = new SharpDbgConfigurationProvider(context, outputChannel);
 
   context.subscriptions.push(
+    outputChannel,
     vscode.debug.registerDebugAdapterDescriptorFactory('sharpdbg', descriptorFactory),
-    vscode.debug.registerDebugConfigurationProvider('sharpdbg', configurationProvider)
+    vscode.debug.registerDebugConfigurationProvider('sharpdbg', configurationProvider),
+    vscode.debug.onDidTerminateDebugSession((session) => stopSessionLogging(session.id))
   );
+
+  log(outputChannel, 'SharpDbg extension activated');
 }
 
 function deactivate() {}
 
 class SharpDbgConfigurationProvider {
-  constructor(context) {
+  constructor(context, outputChannel) {
     this.context = context;
+    this.outputChannel = outputChannel;
   }
 
   provideDebugConfigurations() {
@@ -43,6 +52,8 @@ class SharpDbgConfigurationProvider {
   }
 
   resolveDebugConfiguration(folder, config) {
+    log(this.outputChannel, `Resolving debug configuration for ${config.type || 'unknown'} ${config.request || 'unknown'} launch`);
+
     if (!config.type) {
       config.type = 'sharpdbg';
     }
@@ -60,18 +71,27 @@ class SharpDbgConfigurationProvider {
     }
 
     if (!config.program && !config.projectPath) {
+      log(this.outputChannel, 'Launch configuration is missing both program and projectPath');
       vscode.window.showErrorMessage('SharpDbg launch requires either program or projectPath.');
       return undefined;
     }
 
     if (!config.program && config.projectPath) {
       try {
-        const resolved = await resolveProjectFromProjectPath(folder, config.projectPath);
+        log(this.outputChannel, `Resolving projectPath: ${config.projectPath}`);
+        const resolved = await resolveProjectFromProjectPath(folder, config.projectPath, this.outputChannel);
+        const existingArgs = Array.isArray(config.args) ? config.args : [];
         config.program = resolved.program;
+        config.args = [...(resolved.args || []), ...existingArgs];
         if (!config.cwd && resolved.cwd) {
           config.cwd = resolved.cwd;
         }
+        if (!config.runtimeFlavor && resolved.runtimeFlavor) {
+          config.runtimeFlavor = resolved.runtimeFlavor;
+        }
+        log(this.outputChannel, `Resolved projectPath to program ${config.program} with args ${JSON.stringify(config.args)} and cwd ${config.cwd || '(unset)'}`);
       } catch (err) {
+        logError(this.outputChannel, 'projectPath resolution failed', err);
         vscode.window.showErrorMessage(`SharpDbg could not resolve projectPath: ${err.message}`);
         return undefined;
       }
@@ -82,35 +102,66 @@ class SharpDbgConfigurationProvider {
 }
 
 class SharpDbgAdapterDescriptorFactory {
-  constructor(context) {
+  constructor(context, outputChannel) {
     this.context = context;
+    this.outputChannel = outputChannel;
   }
 
   async createDebugAdapterDescriptor(session) {
     const workspaceFolder = session.workspaceFolder ? session.workspaceFolder.uri.fsPath : undefined;
     const cfg = vscode.workspace.getConfiguration('sharpdbg', session.workspaceFolder);
+    const runtimeFlavor = session.configuration?.runtimeFlavor || 'auto';
+    log(this.outputChannel, `Creating debug adapter for session "${session.name}" (${session.id})`);
 
-    const adapterExecutable = cfg.get('adapterExecutable');
+    const adapterExecutable = getConfiguredValue(cfg, 'adapterExecutable');
     if (adapterExecutable) {
       const adapterArgs = cfg.get('adapterArgs', []);
       const adapterOptions = adapterOptionsFromConfiguration(cfg, workspaceFolder, this.context);
+      log(this.outputChannel, `Using custom adapter executable: ${resolvePath(adapterExecutable, workspaceFolder, this.context)}`);
+      log(this.outputChannel, `Adapter args: ${JSON.stringify(adapterArgs)}`);
       return new vscode.DebugAdapterExecutable(resolvePath(adapterExecutable, workspaceFolder, this.context), adapterArgs, adapterOptions);
     }
 
-    const configuredDllPath = resolvePath(
-      cfg.get('cliDllPath') || path.join('dist', 'sharpdbg', 'SharpDbg.Cli.dll'),
-      workspaceFolder,
-      this.context
-    );
-    const fallbackDllPath = this.context.asAbsolutePath(
-      path.join('sharpdbg', 'artifacts', 'bin', 'SharpDbg.Cli', 'Debug', 'net10.0', 'SharpDbg.Cli.dll')
-    );
-    const dllPath = fs.existsSync(configuredDllPath) ? configuredDllPath : fallbackDllPath;
     const adapterOptions = adapterOptionsFromConfiguration(cfg, workspaceFolder, this.context);
+    const engineLogPath = startSessionLogging(session.id, this.outputChannel);
+
+    if (runtimeFlavor === 'desktopClr') {
+      const desktopCliPath = findDesktopClrCliPath(cfg, workspaceFolder, this.context);
+      if (!desktopCliPath) {
+        const message = 'Could not find the desktop CLR SharpDbg CLI executable. Checked dist/sharpdbg/net48/SharpDbg.Cli.exe and sharpdbg/artifacts/bin/SharpDbg.Cli/debug_net48/SharpDbg.Cli.exe.';
+        log(this.outputChannel, message);
+        throw new Error(message);
+      }
+
+      const adapterArgs = ['--interpreter=vscode', `--engineLogging=${engineLogPath}`];
+      log(this.outputChannel, `Using desktop CLR CLI payload: ${desktopCliPath}`);
+      log(this.outputChannel, `Using debug adapter command: ${desktopCliPath} ${adapterArgs.join(' ')}`);
+      log(this.outputChannel, `Adapter cwd: ${adapterOptions.cwd || '(default)'}`);
+      return new vscode.DebugAdapterExecutable(desktopCliPath, adapterArgs, adapterOptions);
+    }
+
+    const dllPath = findCoreClrCliDllPath(cfg, workspaceFolder, this.context);
+    if (!dllPath) {
+      const configuredDllPath = resolvePath(
+        cfg.get('cliDllPath') || path.join('dist', 'sharpdbg', 'net10.0', 'SharpDbg.Cli.dll'),
+        workspaceFolder,
+        this.context
+      );
+      const releaseDllPath = this.context.asAbsolutePath(
+        path.join('sharpdbg', 'artifacts', 'bin', 'SharpDbg.Cli', 'release', 'SharpDbg.Cli.dll')
+      );
+      const debugDllPath = this.context.asAbsolutePath(
+        path.join('sharpdbg', 'artifacts', 'bin', 'SharpDbg.Cli', 'debug_net10.0', 'SharpDbg.Cli.dll')
+      );
+      const message = `Could not find SharpDbg.Cli.dll. Checked ${configuredDllPath}, ${releaseDllPath}, and ${debugDllPath}.`;
+      log(this.outputChannel, message);
+      throw new Error(message);
+    }
+    log(this.outputChannel, `Using CLI payload: ${dllPath}`);
 
     const runtimeVersion = cfg.get('runtimeVersion') || '10.0';
     const requestingExtensionId = 'lextudio.vscode-sharpdbg';
-    let dotnetPath = await findSystemDotnetHost(runtimeVersion, cfg.get('dotnetPath') || 'dotnet');
+    let dotnetPath = await findSystemDotnetHost(runtimeVersion, cfg.get('dotnetPath') || 'dotnet', this.outputChannel);
 
     if (!dotnetPath) {
       const acquireContext = {
@@ -123,7 +174,9 @@ class SharpDbgAdapterDescriptorFactory {
       try {
         const result = await vscode.commands.executeCommand('dotnet.acquire', acquireContext);
         dotnetPath = result && result.dotnetPath;
+        log(this.outputChannel, `dotnet.acquire returned ${dotnetPath || 'no path'}`);
       } catch (err) {
+        logError(this.outputChannel, 'dotnet.acquire failed', err);
         dotnetPath = undefined;
       }
     }
@@ -132,12 +185,41 @@ class SharpDbgAdapterDescriptorFactory {
       dotnetPath = cfg.get('dotnetPath') || 'dotnet';
     }
 
-    return new vscode.DebugAdapterExecutable(dotnetPath, [dllPath, '--interpreter=vscode'], adapterOptions);
+    const adapterArgs = [dllPath, '--interpreter=vscode', `--engineLogging=${engineLogPath}`];
+    log(this.outputChannel, `Using debug adapter command: ${dotnetPath} ${adapterArgs.join(' ')}`);
+    log(this.outputChannel, `Adapter cwd: ${adapterOptions.cwd || '(default)'}`);
+    return new vscode.DebugAdapterExecutable(dotnetPath, adapterArgs, adapterOptions);
   }
 }
 
+function findCoreClrCliDllPath(cfg, workspaceFolder, context) {
+  const configuredCliDllPath = getConfiguredValue(cfg, 'cliDllPath');
+  const configuredDllPath = configuredCliDllPath
+    ? resolvePath(configuredCliDllPath, workspaceFolder, context)
+    : context.asAbsolutePath(path.join('dist', 'sharpdbg', 'net10.0', 'SharpDbg.Cli.dll'));
+  const releaseDllPath = context.asAbsolutePath(
+    path.join('sharpdbg', 'artifacts', 'bin', 'SharpDbg.Cli', 'release', 'SharpDbg.Cli.dll')
+  );
+  const debugDllPath = context.asAbsolutePath(
+    path.join('sharpdbg', 'artifacts', 'bin', 'SharpDbg.Cli', 'debug_net10.0', 'SharpDbg.Cli.dll')
+  );
+
+  return [configuredDllPath, releaseDllPath, debugDllPath].find((candidate) => candidate && fs.existsSync(candidate));
+}
+
+function findDesktopClrCliPath(cfg, workspaceFolder, context) {
+  const configuredExePath = context.asAbsolutePath(
+    path.join('dist', 'sharpdbg', 'net48', 'SharpDbg.Cli.exe')
+  );
+  const debugExePath = context.asAbsolutePath(
+    path.join('sharpdbg', 'artifacts', 'bin', 'SharpDbg.Cli', 'debug_net48', 'SharpDbg.Cli.exe')
+  );
+
+  return [configuredExePath, debugExePath].find((candidate) => candidate && fs.existsSync(candidate));
+}
+
 function adapterOptionsFromConfiguration(cfg, workspaceFolder, context) {
-  const adapterCwd = cfg.get('adapterCwd');
+  const adapterCwd = getConfiguredValue(cfg, 'adapterCwd');
   const cwd = adapterCwd ? resolvePath(adapterCwd, workspaceFolder, context) : workspaceFolder || undefined;
   const options = {};
 
@@ -145,12 +227,22 @@ function adapterOptionsFromConfiguration(cfg, workspaceFolder, context) {
     options.cwd = cwd;
   }
 
-  const env = cfg.get('adapterEnv');
+  const env = getConfiguredValue(cfg, 'adapterEnv');
   if (env && typeof env === 'object') {
     options.env = env;
   }
 
   return options;
+}
+
+function getConfiguredValue(cfg, key) {
+  const inspection = cfg.inspect(key);
+  return inspection?.workspaceFolderValue
+    ?? inspection?.workspaceValue
+    ?? inspection?.globalValue
+    ?? inspection?.globalLanguageValue
+    ?? inspection?.workspaceFolderLanguageValue
+    ?? inspection?.workspaceLanguageValue;
 }
 
 function resolvePath(candidate, workspaceFolder, context) {
@@ -169,7 +261,8 @@ function resolvePath(candidate, workspaceFolder, context) {
   return context.asAbsolutePath(candidate);
 }
 
-function findSystemDotnetHost(runtimeVersion, dotnetCommand) {
+function findSystemDotnetHost(runtimeVersion, dotnetCommand, outputChannel) {
+  log(outputChannel, `Probing for .NET runtime ${runtimeVersion} with ${dotnetCommand}`);
   return new Promise((resolve) => {
     const child = cp.spawn(dotnetCommand, ['--list-runtimes'], {
       shell: false,
@@ -190,6 +283,7 @@ function findSystemDotnetHost(runtimeVersion, dotnetCommand) {
     child.on('error', () => resolve(undefined));
     child.on('close', (code) => {
       if (code !== 0) {
+        log(outputChannel, `${dotnetCommand} --list-runtimes exited with code ${code}`);
         resolve(undefined);
         return;
       }
@@ -206,13 +300,93 @@ function findSystemDotnetHost(runtimeVersion, dotnetCommand) {
       });
 
       if (!found && stderr) {
+        log(outputChannel, `No matching runtime found. stderr: ${stderr.trim()}`);
         resolve(undefined);
         return;
       }
 
+      log(outputChannel, found ? `Found matching runtime with ${dotnetCommand}` : `No matching runtime found with ${dotnetCommand}`);
       resolve(found ? dotnetCommand : undefined);
     });
   });
+}
+
+function startSessionLogging(sessionId, outputChannel) {
+  const logPath = path.join(os.tmpdir(), `sharpdbg-${sanitizeSessionId(sessionId)}.log`);
+  const state = {
+    logPath,
+    position: 0,
+    interval: undefined
+  };
+
+  outputChannel.show(true);
+  log(outputChannel, `Engine logging to ${logPath}`);
+
+  const pump = () => {
+    try {
+      if (!fs.existsSync(logPath)) {
+        return;
+      }
+
+      const stats = fs.statSync(logPath);
+      if (stats.size < state.position) {
+        state.position = 0;
+      }
+
+      if (stats.size === state.position) {
+        return;
+      }
+
+      const length = stats.size - state.position;
+      const buffer = Buffer.alloc(length);
+      const fd = fs.openSync(logPath, 'r');
+      try {
+        fs.readSync(fd, buffer, 0, length, state.position);
+      } finally {
+        fs.closeSync(fd);
+      }
+
+      state.position = stats.size;
+      outputChannel.append(buffer.toString('utf8'));
+    } catch (err) {
+      logError(outputChannel, 'Failed to read SharpDbg engine log', err);
+    }
+  };
+
+  state.interval = setInterval(pump, 250);
+  sessionLogState.set(sessionId, state);
+  pump();
+
+  return logPath;
+}
+
+function stopSessionLogging(sessionId) {
+  const state = sessionLogState.get(sessionId);
+  if (!state) {
+    return;
+  }
+
+  clearInterval(state.interval);
+  sessionLogState.delete(sessionId);
+}
+
+function sanitizeSessionId(sessionId) {
+  return String(sessionId).replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function log(outputChannel, message) {
+  if (!outputChannel) {
+    return;
+  }
+
+  outputChannel.appendLine(`[${new Date().toISOString()}] ${message}`);
+}
+
+function logError(outputChannel, message, err) {
+  log(outputChannel, `${message}: ${err.message}`);
+  if (err.stack) {
+    outputChannel.appendLine(err.stack);
+  }
 }
 
 async function resolveProgramFromProjectPath(folder, projectPath) {

@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_root"
 
 npm run sync-version
+npm run build:extension
 npm run build:sharpdbg
 
 version="$(node -p "require('./package.json').version")"

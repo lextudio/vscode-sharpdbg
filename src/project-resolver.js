@@ -23,7 +23,7 @@ function createProjectResolver(overrides = {}) {
   const getTargetPathFromProject = overrides.getTargetPathFromProject || createGetTargetPathFromProject({ cp, path });
   const buildProject = overrides.buildProject || createBuildProject({ cp, path });
 
-  async function resolveProgramFromProjectPath(folder, projectPath) {
+  async function resolveProgramFromProjectPath(folder, projectPath, logger) {
     const workspaceFolder = folder ? folder.uri.fsPath : undefined;
     const context = {
       asAbsolutePath: (value) => (workspaceFolder ? path.resolve(workspaceFolder, value) : value)
@@ -32,31 +32,39 @@ function createProjectResolver(overrides = {}) {
     const dotnetCommand = cfg.get('dotnetPath') || 'dotnet';
     const absoluteProjectPath = resolvePath(projectPath, workspaceFolder, context);
 
+    logger?.appendLine(`[${new Date().toISOString()}] Resolving project file ${absoluteProjectPath}`);
     const projectKind = detectKind(absoluteProjectPath, fs);
-    const buildTool = await resolveProjectBuildTool(projectKind, dotnetCommand);
+    logger?.appendLine(`[${new Date().toISOString()}] Detected project kind: ${projectKind}`);
+    const buildTool = await resolveProjectBuildTool(projectKind, dotnetCommand, logger);
+    logger?.appendLine(`[${new Date().toISOString()}] Using build tool: ${buildTool.kind} (${buildTool.path})`);
 
-    const program = await getTargetPathFromProject(absoluteProjectPath, buildTool.path, buildTool.kind);
+    const program = await getTargetPathFromProject(absoluteProjectPath, buildTool.path, buildTool.kind, logger);
     if (!program) {
       throw new Error(`Unable to determine target path for ${absoluteProjectPath}`);
     }
 
     if (!fs.existsSync(program)) {
-      await buildProject(absoluteProjectPath, buildTool.path, buildTool.kind);
+      logger?.appendLine(`[${new Date().toISOString()}] Target output missing, building project`);
+      await buildProject(absoluteProjectPath, buildTool.path, buildTool.kind, logger);
     }
 
+    const launch = toLaunchCommand(program, buildTool, dotnetCommand, path, logger);
+    logger?.appendLine(`[${new Date().toISOString()}] Resolved target program: ${program}`);
     return {
-      program,
-      cwd: path.dirname(absoluteProjectPath)
+      program: launch.program,
+      args: launch.args,
+      cwd: path.dirname(absoluteProjectPath),
+      runtimeFlavor: projectKind === 'legacy' ? 'desktopClr' : 'coreclr'
     };
   }
 
-  async function resolveProjectBuildTool(projectKind, dotnetCommand) {
+  async function resolveProjectBuildTool(projectKind, dotnetCommand, logger) {
     if (projectKind === 'legacy') {
       if (processInfo.platform !== 'win32') {
         throw new Error('Legacy .NET Framework project files require Windows and Visual Studio Build Tools.');
       }
 
-      const msBuildPath = await findVisualStudioMsBuild();
+      const msBuildPath = await findVisualStudioMsBuild(logger);
       if (!msBuildPath) {
         throw new Error('Could not find MSBuild.exe through Visual Studio Build Tools.');
       }
@@ -98,11 +106,12 @@ function createResolvePath(path) {
 }
 
 function createGetTargetPathFromProject({ cp, path }) {
-  return function getTargetPathFromProject(projectPath, buildToolPath, toolKind) {
+  return function getTargetPathFromProject(projectPath, buildToolPath, toolKind, logger) {
     return new Promise((resolve, reject) => {
       const args = toolKind === 'msbuild'
         ? [projectPath, '-nologo', '-getProperty:TargetPath']
         : ['msbuild', projectPath, '-nologo', '-getProperty:TargetPath'];
+      logger?.appendLine(`[${new Date().toISOString()}] Running ${buildToolPath} ${args.join(' ')}`);
 
       const child = cp.spawn(buildToolPath, args, {
         shell: false,
@@ -123,12 +132,14 @@ function createGetTargetPathFromProject({ cp, path }) {
       child.on('error', reject);
       child.on('close', (code) => {
         if (code !== 0) {
+          logger?.appendLine(`[${new Date().toISOString()}] Target path probe failed with code ${code}: ${stderr.trim()}`);
           reject(new Error(stderr.trim() || `${path.basename(buildToolPath)} exited with code ${code}`));
           return;
         }
 
         const output = stdout.trim();
         if (!output) {
+          logger?.appendLine(`[${new Date().toISOString()}] Target path probe returned no output`);
           resolve(undefined);
           return;
         }
@@ -136,6 +147,7 @@ function createGetTargetPathFromProject({ cp, path }) {
         if (output.startsWith('{')) {
           try {
             const parsed = JSON.parse(output);
+            logger?.appendLine(`[${new Date().toISOString()}] Target path probe resolved to ${parsed?.Properties?.TargetPath || '(unset)'}`);
             resolve(parsed?.Properties?.TargetPath);
             return;
           } catch (err) {
@@ -144,18 +156,35 @@ function createGetTargetPathFromProject({ cp, path }) {
           }
         }
 
+        logger?.appendLine(`[${new Date().toISOString()}] Target path probe resolved to ${output}`);
         resolve(output);
       });
     });
   };
 }
 
+function toLaunchCommand(targetPath, buildTool, dotnetCommand, path, logger) {
+  if (path.extname(targetPath).toLowerCase() === '.dll' && buildTool.kind === 'dotnet') {
+    logger?.appendLine(`[${new Date().toISOString()}] Framework-dependent DLL detected, launching via ${dotnetCommand}`);
+    return {
+      program: dotnetCommand,
+      args: [targetPath]
+    };
+  }
+
+  return {
+    program: targetPath,
+    args: []
+  };
+}
+
 function createBuildProject({ cp, path }) {
-  return function buildProject(projectPath, buildToolPath, toolKind) {
+  return function buildProject(projectPath, buildToolPath, toolKind, logger) {
     return new Promise((resolve, reject) => {
       const args = toolKind === 'msbuild'
         ? [projectPath, '/t:Build']
         : ['build', projectPath];
+      logger?.appendLine(`[${new Date().toISOString()}] Running ${buildToolPath} ${args.join(' ')}`);
 
       const child = cp.spawn(buildToolPath, args, {
         shell: false,
@@ -172,10 +201,12 @@ function createBuildProject({ cp, path }) {
       child.on('error', reject);
       child.on('close', (code) => {
         if (code !== 0) {
+          logger?.appendLine(`[${new Date().toISOString()}] Build failed with code ${code}: ${stderr.trim()}`);
           reject(new Error(stderr.trim() || `${path.basename(buildToolPath)} exited with code ${code}`));
           return;
         }
 
+        logger?.appendLine(`[${new Date().toISOString()}] Build completed successfully`);
         resolve();
       });
     });
@@ -183,7 +214,7 @@ function createBuildProject({ cp, path }) {
 }
 
 function createFindVisualStudioMsBuild({ cp, fs, path, process }) {
-  return function findVisualStudioMsBuild() {
+  return function findVisualStudioMsBuild(logger) {
     if (process.platform !== 'win32') {
       return Promise.resolve(undefined);
     }
@@ -202,9 +233,11 @@ function createFindVisualStudioMsBuild({ cp, fs, path, process }) {
 
     const existing = candidates.find((candidate) => fs.existsSync(candidate));
     if (!existing) {
+      logger?.appendLine(`[${new Date().toISOString()}] No vswhere.exe found for MSBuild discovery`);
       return Promise.resolve(undefined);
     }
 
+    logger?.appendLine(`[${new Date().toISOString()}] Probing MSBuild with ${existing}`);
     return new Promise((resolve, reject) => {
       const child = cp.spawn(existing, ['-latest', '-products', '*', '-requires', 'Microsoft.Component.MSBuild', '-find', 'MSBuild\\**\\Bin\\MSBuild.exe'], {
         shell: false,
@@ -225,11 +258,13 @@ function createFindVisualStudioMsBuild({ cp, fs, path, process }) {
       child.on('error', reject);
       child.on('close', (code) => {
         if (code !== 0) {
+          logger?.appendLine(`[${new Date().toISOString()}] vswhere exited with code ${code}: ${stderr.trim()}`);
           reject(new Error(stderr.trim() || `vswhere exited with code ${code}`));
           return;
         }
 
         const found = stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+        logger?.appendLine(`[${new Date().toISOString()}] MSBuild discovery result: ${found || '(none)'}`);
         resolve(found ? found : undefined);
       });
     });

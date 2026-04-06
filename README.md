@@ -61,13 +61,19 @@ You can customize SharpDbg through VS Code settings:
 ## Notes
 
 SharpDbg first uses an installed .NET 10 host when it finds one. If no suitable host is available, it falls back to the .NET runtime install tool so the debugger can still start without requiring a manual install.
-Launch configurations can use either `program` or `projectPath`. If you point SharpDbg at a project file, SharpDbg reads the project XML to decide how to build it: SDK-style projects use `dotnet`, while legacy .NET Framework projects on Windows use Visual Studio Build Tools/MSBuild when available.
+
+Launch configurations can use either `program` or `projectPath`. If you point SharpDbg at a project file, SharpDbg reads the project XML to decide how to build it: SDK-style projects use `dotnet`, while legacy .NET Framework projects on Windows use Visual Studio Build Tools/MSBuild when available (vswhere.exe is used so applicable to VS2017 and above).
 
 ## License
 
 This project, vscode-sharpdbg, is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-SharpDbg itself is licensed under the MIT License as well, created by Matt Parker and the SharpDbg contributors. This extension ships with a custom build with extra features from LeXtudio Inc.
+SharpDbg itself is licensed under the MIT License as well, created by Matt Parker and the SharpDbg contributors.
+
+This extension ships with a custom build from LeXtudio Inc. with extra features:
+
+- .NET Framework support
+- Stop at entry support
 
 ## Copyright
 

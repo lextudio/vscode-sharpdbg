@@ -12,6 +12,13 @@ Install the .NET 10 SDK before working on this repository.
 The extension launcher probes for an installed .NET 10 host first, then falls back to the runtime tool only when needed.
 If you are testing legacy .NET Framework `projectPath` resolution on Windows, install Visual Studio Build Tools so `vswhere.exe` can find MSBuild.
 
+To debug the extension itself in VS Code:
+
+1. Open this repository in VS Code.
+2. Press `F5`.
+3. Choose `Run Extension`.
+4. VS Code opens an Extension Development Host with SharpDbg loaded.
+
 ## Common commands
 
 - `npm run sync-version` updates `package.json` from the current GitVersion result

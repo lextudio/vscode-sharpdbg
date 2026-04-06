@@ -39,7 +39,10 @@ function waitForSessionTermination(session) {
 }
 
 async function configureSharpDbgForFixture() {
-  const dotnetExecutable = cp.execFileSync('which', ['dotnet'], { encoding: 'utf8' }).trim();
+  const lookupCommand = process.platform === 'win32' ? 'where' : 'which';
+  const dotnetExecutable = cp.execFileSync(lookupCommand, ['dotnet'], { encoding: 'utf8' })
+    .split(/\r?\n/)[0]
+    .trim();
   const cliDll = path.resolve(__dirname, '..', '..', 'dist', 'sharpdbg', 'SharpDbg.Cli.dll');
   assert.ok(fs.existsSync(cliDll), `SharpDbg CLI should exist at ${cliDll}`);
 

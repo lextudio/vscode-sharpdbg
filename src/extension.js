@@ -22,6 +22,27 @@ function activate(context) {
   );
 
   log(outputChannel, 'SharpDbg extension activated');
+
+  return {
+    /**
+     * Locates MSBuild.exe from the latest Visual Studio installation via vswhere.
+     * Returns undefined on non-Windows or when no Visual Studio installation is found.
+     * @returns {Promise<string | undefined>}
+     */
+    findMsBuildExe: () => findVisualStudioMsBuild(),
+
+    /**
+     * Resolves a .NET project file to a launchable program path, detecting the
+     * project kind (SDK vs legacy), selecting the appropriate build tool, and
+     * building the project if the output binary is missing.
+     * @param {import('vscode').WorkspaceFolder | undefined} folder
+     * @param {string} projectPath  Absolute or workspace-relative path to .csproj/.vbproj/.fsproj
+     * @param {import('vscode').OutputChannel} [logger]  Optional channel for diagnostic output
+     * @returns {Promise<{ program: string, args: string[], cwd: string, runtimeFlavor: string }>}
+     */
+    resolveProgramFromProjectPath: (folder, projectPath, logger) =>
+      resolveProjectFromProjectPath(folder, projectPath, logger)
+  };
 }
 
 function deactivate() {}

@@ -1,6 +1,12 @@
-# vscode-sharpdbg
+# SharpDbg Extension for Visual Studio Code
 
-SharpDbg for VS Code adds an open source managed code debugger for .NET Framework, .NET Core, and .NET applications.
+[![Become a Sponsor](https://img.shields.io/badge/Become%20a%20Sponsor-lextudio-orange.svg?style=for-readme)](https://github.com/sponsors/lextudio)
+[![Version](https://vsmarketplacebadges.dev/version/lextudio.sharpdbg.svg)](https://marketplace.visualstudio.com/items?itemName=lextudio.sharpdbg)
+[![Installs](https://vsmarketplacebadges.dev/installs/lextudio.sharpdbg.svg)](https://marketplace.visualstudio.com/items?itemName=lextudio.sharpdbg)
+[![Downloads](https://vsmarketplacebadges.dev/downloads/lextudio.sharpdbg.svg)](https://marketplace.visualstudio.com/items?itemName=lextudio.sharpdbg)
+[![Rating](https://vsmarketplacebadges.dev/rating/lextudio.sharpdbg.svg)](https://marketplace.visualstudio.com/items?itemName=lextudio.sharpdbg)
+
+This extension adds an open source managed code debugger for .NET Framework, .NET Core, and .NET applications.
 
 ## Features
 

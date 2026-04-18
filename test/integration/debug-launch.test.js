@@ -51,7 +51,7 @@ async function configureSharpDbgForFixture() {
 }
 
 async function launchFixtureApp(config) {
-  const extension = vscode.extensions.getExtension('lextudio.vscode-sharpdbg');
+  const extension = vscode.extensions.getExtension('lextudio.sharpdbg');
   assert.ok(extension, 'extension should be present');
   await extension.activate();
 

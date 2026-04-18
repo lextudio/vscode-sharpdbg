@@ -13,11 +13,13 @@ function main() {
   const result = spawnSync('dotnet', ['tool', 'run', 'dotnet-gitversion', '/showvariable', 'SemVer'], {
     cwd: repoRoot,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'inherit']
+    stdio: ['ignore', 'pipe', 'pipe']
   });
 
   if (result.status !== 0) {
     console.error('dotnet-gitversion failed with exit code', result.status);
+    if (result.stdout) console.error('stdout:', result.stdout);
+    if (result.stderr) console.error('stderr:', result.stderr);
     process.exit(result.status || 1);
   }
 

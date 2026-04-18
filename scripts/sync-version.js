@@ -44,8 +44,9 @@ function ensureToolRestore() {
   });
 
   if (result.status !== 0) {
-    process.stderr.write(result.stdout || '');
-    process.stderr.write(result.stderr || '');
+    console.error('dotnet tool restore failed');
+    if (result.stdout) process.stderr.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
     process.exit(result.status || 1);
   }
 }

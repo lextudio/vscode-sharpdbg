@@ -2,7 +2,7 @@
   "name": "sharpdbg",
   "displayName": "SharpDbg for .NET",
   "description": "Use SharpDbg as a VS Code debugger for .NET Framework and .NET Core.",
-  "version": "0.1.0",
+  "version": "0.1.1-2",
   "publisher": "lextudio",
   "icon": "logo.png",
   "repository": {

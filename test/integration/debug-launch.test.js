@@ -43,8 +43,24 @@ async function configureSharpDbgForFixture() {
   const dotnetExecutable = cp.execFileSync(lookupCommand, ['dotnet'], { encoding: 'utf8' })
     .split(/\r?\n/)[0]
     .trim();
-  const cliDll = path.resolve(__dirname, '..', '..', 'dist', 'sharpdbg', 'SharpDbg.Cli.dll');
-  assert.ok(fs.existsSync(cliDll), `SharpDbg CLI should exist at ${cliDll}`);
+
+  const sharpdbgDir = path.resolve(__dirname, '..', '..', 'dist', 'sharpdbg');
+  let cliDll = null;
+
+  const candidates = [
+    path.join(sharpdbgDir, 'SharpDbg.Cli.dll'),
+    path.join(sharpdbgDir, 'net10.0', 'SharpDbg.Cli.dll'),
+    path.join(sharpdbgDir, 'net48', 'SharpDbg.Cli.dll')
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      cliDll = candidate;
+      break;
+    }
+  }
+
+  assert.ok(cliDll, `SharpDbg CLI should exist at one of: ${candidates.join(', ')}`);
 
   await vscode.workspace.getConfiguration('sharpdbg').update('adapterExecutable', dotnetExecutable, vscode.ConfigurationTarget.Workspace);
   await vscode.workspace.getConfiguration('sharpdbg').update('adapterArgs', [cliDll, '--interpreter=vscode'], vscode.ConfigurationTarget.Workspace);

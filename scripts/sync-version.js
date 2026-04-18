@@ -13,11 +13,11 @@ function main() {
   const result = spawnSync('dotnet', ['tool', 'run', 'dotnet-gitversion', '/showvariable', 'SemVer'], {
     cwd: repoRoot,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'inherit']
   });
 
   if (result.status !== 0) {
-    process.stderr.write(result.stderr || '');
+    console.error('dotnet-gitversion failed with exit code', result.status);
     process.exit(result.status || 1);
   }
 
@@ -37,16 +37,14 @@ function main() {
 }
 
 function ensureToolRestore() {
-  const result = spawnSync('dotnet', ['tool', 'restore'], {
+  const result = spawnSync('dotnet', ['tool', 'restore', '--verbosity', 'quiet'], {
     cwd: repoRoot,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: 'inherit'
   });
 
   if (result.status !== 0) {
-    console.error('dotnet tool restore failed');
-    if (result.stdout) process.stderr.write(result.stdout);
-    if (result.stderr) process.stderr.write(result.stderr);
+    console.error('dotnet tool restore failed with exit code', result.status);
     process.exit(result.status || 1);
   }
 }

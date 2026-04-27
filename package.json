@@ -33,7 +33,7 @@
     "sync-version": "node scripts/sync-version.js",
     "build:extension": "node scripts/build-extension.js",
     "build:sharpdbg": "node scripts/publish-sharpdbg.js",
-    "build:fixture": "dotnet build test/fixtures/DebuggeeApp/DebuggeeApp.csproj",
+    "build:fixture": "dotnet build test/fixtures/DebuggeeApp/DebuggeeApp.csproj && dotnet build test/fixtures/DebuggeeAppCrash/DebuggeeAppCrash.csproj",
     "test:unit": "node --test test/unit/*.test.js",
     "test:integration:prepare": "npm run sync-version && npm run build:extension && npm run build:sharpdbg && npm run build:fixture",
     "test:integration": "npm run test:integration:prepare && vscode-test",

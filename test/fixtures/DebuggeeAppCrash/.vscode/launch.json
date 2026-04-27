@@ -1,0 +1,21 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "sharpdbg",
+            "request": "launch",
+            "name": "Launch SharpDbg from projectPath",
+            "projectPath": "${workspaceFolder}/DebuggeeAppCrash.csproj",
+            "stopAtEntry": false
+        },
+        {
+            "name": "Attach to Process",
+            "type": "sharpdbg",
+            "request": "attach",
+            "processId": "${command:pickProcess}"
+        }
+    ]
+}

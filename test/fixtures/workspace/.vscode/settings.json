@@ -1,0 +1,7 @@
+{
+    "sharpdbg.adapterExecutable": "/usr/local/share/dotnet/dotnet",
+    "sharpdbg.adapterArgs": [
+        "/Users/lextm/vscode-sharpdbg/dist/sharpdbg/net10.0/SharpDbg.Cli.dll",
+        "--interpreter=vscode"
+    ]
+}

@@ -2,9 +2,23 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build:extension",
+      "type": "npm",
+      "script": "build:extension",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
       "label": "build:sharpdbg",
       "type": "npm",
       "script": "build:sharpdbg",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "build",
+      "dependsOn": ["build:extension", "build:sharpdbg"],
+      "dependsOrder": "sequence",
       "group": "build",
       "problemMatcher": []
     }

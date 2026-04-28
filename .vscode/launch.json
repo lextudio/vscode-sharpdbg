@@ -9,7 +9,7 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
-      "preLaunchTask": "build:sharpdbg",
+      "preLaunchTask": "build",
       "outFiles": []
     }
   ]

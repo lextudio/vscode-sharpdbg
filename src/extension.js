@@ -18,6 +18,24 @@ function activate(context) {
     outputChannel,
     vscode.debug.registerDebugAdapterDescriptorFactory('sharpdbg', descriptorFactory),
     vscode.debug.registerDebugConfigurationProvider('sharpdbg', configurationProvider),
+      vscode.commands.registerCommand('sharpdbg.pickProcess', async () => {
+        try {
+          const stdout = cp.execSync('ps -ax -o pid= -o comm=').toString();
+          const lines = stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          const items = lines.map(line => {
+            const m = line.match(/^(\d+)\s+(.*)$/);
+              if (m) return { label: `${m[1]} - ${m[2]}`, pid: m[1] };
+            return null;
+          }).filter(Boolean);
+          const selection = await vscode.window.showQuickPick(items.map(i => i.label), { placeHolder: 'Select process to attach' });
+          if (!selection) return '';
+          const chosen = items.find(i => i.label === selection);
+          return chosen ? chosen.pid : '';
+        } catch (err) {
+          const pid = await vscode.window.showInputBox({ prompt: 'Enter process id to attach' });
+          return pid || '';
+        }
+      }),
     // Track adapter messages so the extension can react to stopped/exception events
     vscode.debug.registerDebugAdapterTrackerFactory('sharpdbg', {
       createDebugAdapterTracker: (session) => {

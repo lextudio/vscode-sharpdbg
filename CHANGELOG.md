@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.5] - 2026-04-28
+
+- Improved debugging profile creation.
+
 ## [0.1.4] - 2026-04-27
 
 - Added a new option to control session log files.

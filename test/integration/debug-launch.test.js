@@ -3,25 +3,40 @@ const cp = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { suite, test } = require('mocha');
+const { suite, test, before } = require('mocha');
 const vscode = require('vscode');
 
-function waitForDebugSession(type) {
-  return new Promise((resolve, reject) => {
-    const existing = vscode.debug.activeDebugSession;
-    if (existing && existing.type === type) {
-      resolve(existing);
-      return;
-    }
+const TEST_LOG_PATH = path.join(os.tmpdir(), 'sharpdbg-integration-test.log');
 
+function testLog(msg) {
+  try {
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    fs.appendFileSync(TEST_LOG_PATH, line);
+  } catch (e) {
+    // ignore — log file may not be writable in sandboxed environments
+  }
+}
+
+before(() => {
+  fs.writeFileSync(TEST_LOG_PATH, `=== Integration test run started at ${new Date().toISOString()} ===\n`);
+  testLog('Test log reset');
+});
+
+function waitForDebugSession(type) {
+  testLog(`waitForDebugSession: waiting for ${type}`);
+  return new Promise((resolve, reject) => {
+    // Always wait for a new onDidStartDebugSession event — never use
+    // activeDebugSession, which may be a stale session from a prior test.
     const disposable = vscode.debug.onDidStartDebugSession((session) => {
       if (session.type === type) {
+        testLog(`waitForDebugSession: session started ${session.id}`);
         disposable.dispose();
         resolve(session);
       }
     });
 
     setTimeout(() => {
+      testLog(`waitForDebugSession: TIMEOUT waiting for ${type}`);
       disposable.dispose();
       reject(new Error(`Timed out waiting for ${type} debug session`));
     }, 60000);
@@ -29,13 +44,21 @@ function waitForDebugSession(type) {
 }
 
 function waitForSessionTermination(session) {
+  testLog(`waitForSessionTermination: waiting for session ${session.id}`);
   return new Promise((resolve) => {
     const disposable = vscode.debug.onDidTerminateDebugSession((terminatedSession) => {
       if (terminatedSession.id === session.id) {
+        testLog(`waitForSessionTermination: session ${session.id} terminated`);
         disposable.dispose();
         resolve();
       }
     });
+
+    setTimeout(() => {
+      testLog(`waitForSessionTermination: TIMEOUT after 30s for session ${session.id} — resolving anyway`);
+      disposable.dispose();
+      resolve();
+    }, 30000);
   });
 }
 
@@ -72,6 +95,7 @@ function getSessionLogPath(sessionId) {
 }
 
 async function configureSharpDbgForFixture() {
+  testLog('configureSharpDbgForFixture: start');
   const lookupCommand = process.platform === 'win32' ? 'where' : 'which';
   const dotnetExecutable = cp.execFileSync(lookupCommand, ['dotnet'], { encoding: 'utf8' })
     .split(/\r?\n/)[0]
@@ -95,17 +119,21 @@ async function configureSharpDbgForFixture() {
 
   assert.ok(cliDll, `SharpDbg CLI should exist at one of: ${candidates.join(', ')}`);
 
+  testLog(`configureSharpDbgForFixture: dotnet=${dotnetExecutable}, dll=${cliDll}`);
   await vscode.workspace.getConfiguration('sharpdbg').update('adapterExecutable', dotnetExecutable, vscode.ConfigurationTarget.Workspace);
   await vscode.workspace.getConfiguration('sharpdbg').update('adapterArgs', [cliDll, '--interpreter=vscode'], vscode.ConfigurationTarget.Workspace);
+  testLog('configureSharpDbgForFixture: done');
 }
 
 async function launchFixtureApp(config) {
+  testLog(`launchFixtureApp: start config=${JSON.stringify(config)}`);
   const extension = vscode.extensions.getExtension('lextudio.sharpdbg');
   assert.ok(extension, 'extension should be present');
   await extension.activate();
 
   const workspaceFolder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   assert.ok(workspaceFolder, 'workspace folder should be available');
+  testLog(`launchFixtureApp: workspace=${workspaceFolder.uri.fsPath}`);
 
   const workspaceSettingsDir = path.join(workspaceFolder.uri.fsPath, '.vscode');
 
@@ -130,22 +158,32 @@ async function launchFixtureApp(config) {
   try {
     await configureSharpDbgForFixture();
 
+    // Register the session waiter before startDebugging so we don't miss the event
+    const sessionPromise = waitForDebugSession('sharpdbg');
+    testLog('launchFixtureApp: calling startDebugging');
     const started = await vscode.debug.startDebugging(workspaceFolder, config);
     assert.strictEqual(started, true, 'debug session should start');
+    testLog(`launchFixtureApp: startDebugging returned ${started}`);
 
-    const session = await waitForDebugSession('sharpdbg');
+    const session = await sessionPromise;
     assert.strictEqual(session.type, 'sharpdbg');
 
+    testLog(`launchFixtureApp: calling stopDebugging for session ${session.id}`);
     await vscode.debug.stopDebugging(session);
+    testLog('launchFixtureApp: stopDebugging returned, waiting for termination');
     await waitForSessionTermination(session);
+    testLog('launchFixtureApp: session terminated');
   } finally {
+    testLog('launchFixtureApp: cleaning up workspace settings');
     fs.rmSync(workspaceSettingsDir, { recursive: true, force: true });
+    testLog('launchFixtureApp: done');
   }
 }
 
 suite('SharpDbg integration', () => {
   test('launches the fixture app from program and responds to DAP requests', async function () {
     this.timeout(120000);
+    testLog('TEST START: launches from program');
 
     const fixtureDir = path.resolve(__dirname, '..', 'fixtures', 'DebuggeeApp');
     const program = path.join(fixtureDir, 'bin', 'Debug', 'net10.0', 'DebuggeeApp.dll');
@@ -159,10 +197,12 @@ suite('SharpDbg integration', () => {
       cwd: fixtureDir,
       stopAtEntry: false
     });
+    testLog('TEST END: launches from program');
   });
 
   test('launches the fixture app from projectPath and responds to DAP requests', async function () {
     this.timeout(120000);
+    testLog('TEST START: launches from projectPath');
 
     const fixtureDir = path.resolve(__dirname, '..', 'fixtures', 'DebuggeeApp');
     const projectPath = path.join(fixtureDir, 'DebuggeeApp.csproj');
@@ -175,10 +215,12 @@ suite('SharpDbg integration', () => {
       projectPath,
       stopAtEntry: false
     });
+    testLog('TEST END: launches from projectPath');
   });
 
   test('stops at unhandled exception and logs exception type', async function () {
     this.timeout(120000);
+    testLog('TEST START: stops at unhandled exception');
 
     const fixtureDir = path.resolve(__dirname, '..', 'fixtures', 'DebuggeeAppCrash');
     const projectPath = path.join(fixtureDir, 'DebuggeeAppCrash.csproj');
@@ -214,6 +256,9 @@ suite('SharpDbg integration', () => {
 
     assert.ok(cliDll, `SharpDbg CLI should exist at one of: ${candidates.join(', ')}`);
 
+    // Clear adapterExecutable so the extension uses the cliDllPath code path (which enables engine logging)
+    await vscode.workspace.getConfiguration('sharpdbg').update('adapterExecutable', undefined, vscode.ConfigurationTarget.Workspace);
+    await vscode.workspace.getConfiguration('sharpdbg').update('adapterArgs', undefined, vscode.ConfigurationTarget.Workspace);
     await vscode.workspace.getConfiguration('sharpdbg').update('cliDllPath', cliDll, vscode.ConfigurationTarget.Workspace);
 
     // Register a debug adapter tracker to observe the exception stop. Exception
@@ -229,17 +274,27 @@ suite('SharpDbg integration', () => {
         return {
           onDidSendMessage: (message) => {
             try {
-              if (!message || message.type !== 'event') return;
+              if (!message) return;
+              const summary = message.type === 'event'
+                ? `event=${message.event || 'N/A'}`
+                : message.type === 'response'
+                  ? `cmd=${message.command || 'N/A'} success=${message.success}`
+                  : `type=${message.type}`;
+              testLog(`tracker[${session.id.slice(0, 8)}]: ${message.type} ${summary}`);
+
+              if (message.type !== 'event') return;
 
               if (message.event === 'stopped') {
                 const reason = message.body && message.body.reason;
+                testLog(`tracker: stopped event with reason=${reason}`);
                 if (reason && String(reason).toLowerCase().includes('exception')) {
+                  testLog('tracker: matched exception stopped event, resolving');
                   stoppedDetected = true;
                   stoppedResolve(message);
                 }
               }
             } catch (err) {
-              // swallow tracker errors to not crash the adapter
+              testLog(`tracker error: ${err.message}`);
             }
           }
         };
@@ -249,6 +304,9 @@ suite('SharpDbg integration', () => {
     const trackerDisposable = vscode.debug.registerDebugAdapterTrackerFactory('sharpdbg', trackerFactory);
 
     try {
+      // Register the session waiter before startDebugging so we don't miss the event
+      const sessionPromise = waitForDebugSession('sharpdbg');
+      testLog('crash test: calling startDebugging');
       const started = await vscode.debug.startDebugging(workspaceFolder, {
         type: 'sharpdbg',
         request: 'launch',
@@ -259,17 +317,45 @@ suite('SharpDbg integration', () => {
       });
 
       assert.strictEqual(started, true, 'debug session should start');
+      testLog('crash test: startDebugging returned, waiting for session');
 
-      const session = await waitForDebugSession('sharpdbg');
+      const session = await sessionPromise;
+      testLog(`crash test: session started ${session.id}, waiting for stopped event`);
 
-      await Promise.race([
+      const stoppedMessage = await Promise.race([
         stoppedPromise,
         new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out waiting for stopped event')), 60000))
       ]);
 
       assert.ok(stoppedDetected, 'debug session should stop due to exception');
+      testLog('crash test: stopped event received');
+
+      const threadId = stoppedMessage && stoppedMessage.body ? stoppedMessage.body.threadId : undefined;
+      assert.ok(threadId, 'stopped event should include threadId');
+
+      testLog(`crash test: requesting exceptionInfo for threadId=${threadId}`);
+      const exceptionInfo = await session.customRequest('exceptionInfo', { threadId });
+      assert.ok(exceptionInfo, 'exceptionInfo response should be present');
+      testLog(`crash test: exceptionInfo received`);
+
+      const details = exceptionInfo.details || exceptionInfo.Details || exceptionInfo;
+      const evaluateName = details && details.evaluateName ? details.evaluateName : details && details.EvaluateName ? details.EvaluateName : null;
+      assert.ok(evaluateName, 'Exception details should include an evaluateName');
+
+      testLog(`crash test: evaluating ${evaluateName}`);
+      const evalResp = await session.customRequest('evaluate', { expression: evaluateName });
+      assert.ok(evalResp, 'evaluate response should be present');
+      const variablesReference = evalResp.variablesReference || evalResp.VariablesReference || 0;
+      assert.ok(variablesReference > 0, 'evaluate should return a variablesReference for the exception object');
+      testLog(`crash test: evaluate returned varRef=${variablesReference}`);
+
+      testLog('crash test: requesting variables');
+      const vars = await session.customRequest('variables', { variablesReference });
+      assert.ok(vars && vars.variables && vars.variables.length > 0, 'variables for exception object should be returned');
+      testLog(`crash test: got ${vars.variables.length} variables`);
 
       const logPath = getSessionLogPath(session.id);
+      testLog(`crash test: waiting for engine log at ${logPath}`);
       const log = await waitUntil(() => {
         if (!fs.existsSync(logPath)) {
           return undefined;
@@ -284,16 +370,23 @@ suite('SharpDbg integration', () => {
           : undefined;
       }, 60000, `Timed out waiting for exception details in ${logPath}`);
 
+      testLog('crash test: engine log received, verifying content');
       assert.match(log, /Unhandled exception: System\.InvalidOperationException: Unhandled test exception for extension testing/);
       assert.match(log, /Exception call stack:/);
       assert.match(log, /DebuggeeAppCrash\.dll!Program\.<Main>\$\(\)/);
+      testLog('crash test: all assertions passed');
 
+      testLog(`crash test: stopping debug session ${session.id}`);
       await vscode.debug.stopDebugging(session);
+      testLog('crash test: waiting for session termination');
       await waitForSessionTermination(session);
+      testLog('crash test: session terminated');
     } finally {
+      testLog('crash test: cleaning up');
       trackerDisposable.dispose();
       const workspaceSettingsDir = path.join(workspaceFolder.uri.fsPath, '.vscode');
       fs.rmSync(workspaceSettingsDir, { recursive: true, force: true });
+      testLog('TEST END: stops at unhandled exception');
     }
   });
 });

@@ -18,6 +18,185 @@ function activate(context) {
     outputChannel,
     vscode.debug.registerDebugAdapterDescriptorFactory('sharpdbg', descriptorFactory),
     vscode.debug.registerDebugConfigurationProvider('sharpdbg', configurationProvider),
+    // Track adapter messages so the extension can react to stopped/exception events
+    vscode.debug.registerDebugAdapterTrackerFactory('sharpdbg', {
+      createDebugAdapterTracker: (session) => {
+        // Tail the engine log file and trigger an exception-info probe when
+        // the engine emits Exception-related events. This complements the
+        // existing "stopped" handling which queries exceptionInfo/stackTrace.
+        let parsePosition = 0;
+        let tailInterval = undefined;
+        let lastTrigger = 0;
+        const tailPollMs = 250;
+
+        const logState = sessionLogState.get(session.id);
+        const logPath = logState ? logState.logPath : path.join(os.tmpdir(), `sharpdbg-${sanitizeSessionId(session.id)}.log`);
+
+        const handleEngineException = async () => {
+          try {
+            // Rate-limit probing to avoid spamming the adapter
+            if (Date.now() - lastTrigger < 2000) return;
+            lastTrigger = Date.now();
+
+            // Ask for threads, then probe each thread for exceptionInfo or a stack
+            let threadsResp;
+            try {
+              threadsResp = await session.customRequest('threads', {});
+            } catch (err) {
+              return;
+            }
+
+            const threads = (threadsResp && threadsResp.threads) || [];
+            for (const t of threads) {
+              const threadId = typeof t.id === 'number' ? t.id : (typeof t.threadId === 'number' ? t.threadId : undefined);
+              if (typeof threadId !== 'number') continue;
+
+              try {
+                const excInfo = await session.customRequest('exceptionInfo', { threadId });
+                const typeName = excInfo?.details?.typeName || excInfo?.exceptionId || '';
+                const messageText = excInfo?.details?.message || excInfo?.description || '';
+                if (typeName || messageText) {
+                  log(outputChannel, `Unhandled exception: ${typeName}${messageText ? `: ${messageText}` : ''}`);
+                  if (excInfo?.details?.stackTrace) {
+                    log(outputChannel, 'Exception call stack:');
+                    const lines = excInfo.details.stackTrace.split(/\r?\n/);
+                    for (const line of lines) {
+                      outputChannel.appendLine(`[${new Date().toISOString()}]   ${line}`);
+                    }
+                  }
+                  return;
+                }
+              } catch (err) {
+                // ignore and try next thread
+              }
+            }
+
+            // Fallback: try stackTrace on threads to infer a callstack
+            for (const t of threads) {
+              const threadId = typeof t.id === 'number' ? t.id : (typeof t.threadId === 'number' ? t.threadId : undefined);
+              if (typeof threadId !== 'number') continue;
+              try {
+                const stackResp = await session.customRequest('stackTrace', { threadId, startFrame: 0, levels: 50 });
+                if (stackResp && Array.isArray(stackResp.stackFrames) && stackResp.stackFrames.length) {
+                  log(outputChannel, 'Exception call stack (inferred):');
+                  for (const frame of stackResp.stackFrames) {
+                    const src = frame.source && (frame.source.path || frame.source.name) ? (frame.source.path || frame.source.name) : '<unknown>';
+                    outputChannel.appendLine(`[${new Date().toISOString()}]   at ${frame.name} in ${src}:${frame.line}`);
+                  }
+                  return;
+                }
+              } catch (err) {
+                // best-effort
+              }
+            }
+          } catch (e) {
+            // swallow
+          }
+        };
+
+        const tailer = () => {
+          try {
+            if (!fs.existsSync(logPath)) return;
+            const stats = fs.statSync(logPath);
+            if (stats.size <= parsePosition) {
+              parsePosition = stats.size;
+              return;
+            }
+
+            const length = stats.size - parsePosition;
+            const fd = fs.openSync(logPath, 'r');
+            try {
+              const buffer = Buffer.alloc(length);
+              fs.readSync(fd, buffer, 0, length, parsePosition);
+              parsePosition = stats.size;
+              const text = buffer.toString('utf8');
+              if (/ExceptionCorDebugManagedCallbackEventArgs|Unhandled exception|Exception thrown/i.test(text)) {
+                // fire-and-forget probe; don't await here to avoid blocking tailer
+                handleEngineException();
+              }
+            } finally {
+              fs.closeSync(fd);
+            }
+          } catch (err) {
+            // ignore tailing errors
+          }
+        };
+
+        try {
+          tailInterval = setInterval(tailer, tailPollMs);
+          tailer();
+        } catch (e) {
+          // ignore
+        }
+
+        return {
+          onDidSendMessage: (message) => {
+            // Fire async work without blocking delivery to other trackers
+            Promise.resolve().then(async () => {
+              try {
+                if (!message || message.type !== 'event') return;
+
+                if (message.event === 'stopped') {
+                  const threadId = message.body && message.body.threadId;
+                  try {
+                    const excInfo = await session.customRequest('exceptionInfo', { threadId });
+                    const typeName = excInfo?.details?.typeName || excInfo?.exceptionId || '';
+                    const messageText = excInfo?.details?.message || excInfo?.description || '';
+                    if (typeName || messageText) {
+                      log(outputChannel, `Unhandled exception: ${typeName}${messageText ? `: ${messageText}` : ''}`);
+
+                      if (excInfo?.details?.stackTrace) {
+                        log(outputChannel, 'Exception call stack:');
+                        const lines = excInfo.details.stackTrace.split(/\r?\n/);
+                        for (const line of lines) {
+                          outputChannel.appendLine(`[${new Date().toISOString()}]   ${line}`);
+                        }
+                      }
+                      return;
+                    }
+                  } catch (err) {
+                    // ignore and fall through to stackTrace fallback
+                  }
+
+                  if (typeof threadId === 'number') {
+                    try {
+                      const stackResp = await session.customRequest('stackTrace', { threadId, startFrame: 0, levels: 50 });
+                      if (stackResp && Array.isArray(stackResp.stackFrames) && stackResp.stackFrames.length) {
+                        log(outputChannel, 'Exception call stack:');
+                        for (const frame of stackResp.stackFrames) {
+                          const src = frame.source && (frame.source.path || frame.source.name) ? (frame.source.path || frame.source.name) : '<unknown>';
+                          outputChannel.appendLine(`[${new Date().toISOString()}]   at ${frame.name} in ${src}:${frame.line}`);
+                        }
+                      }
+                    } catch (innerErr) {
+                      // best-effort only
+                    }
+                  }
+                }
+
+                if (message.event === 'output') {
+                  const out = message.body && (message.body.output || message.body.text || message.body.category || '');
+                  try {
+                    if (typeof out === 'string' && /Unhandled exception/i.test(out)) {
+                      log(outputChannel, out.trim());
+                    }
+                  } catch (e) {
+                    // swallow
+                  }
+                }
+              } catch (e) {
+                // swallow tracker errors
+              }
+            }).catch(() => {});
+          },
+          dispose: () => {
+            try {
+              if (tailInterval) clearInterval(tailInterval);
+            } catch (e) {}
+          }
+        };
+      }
+    }),
     vscode.debug.onDidTerminateDebugSession((session) => stopSessionLogging(session.id))
   );
 

@@ -323,7 +323,13 @@ class SharpDbgAdapterDescriptorFactory {
     }
 
     const adapterOptions = adapterOptionsFromConfiguration(cfg, workspaceFolder, this.context);
-    const engineLogPath = startSessionLogging(session.id, this.outputChannel);
+    const engineLoggingEnabled = cfg.get('engineLogging') === true;
+    let engineLogPath = undefined;
+    if (engineLoggingEnabled) {
+      engineLogPath = startSessionLogging(session.id, this.outputChannel);
+    } else {
+      log(this.outputChannel, `Engine logging disabled (sharpdbg.engineLogging=false)`);
+    }
 
     if (runtimeFlavor === 'desktopClr') {
       const desktopCliPath = findDesktopClrCliPath(cfg, workspaceFolder, this.context);
@@ -333,7 +339,8 @@ class SharpDbgAdapterDescriptorFactory {
         throw new Error(message);
       }
 
-      const adapterArgs = ['--interpreter=vscode', `--engineLogging=${engineLogPath}`];
+      const adapterArgs = ['--interpreter=vscode'];
+      if (engineLogPath) adapterArgs.push(`--engineLogging=${engineLogPath}`);
       log(this.outputChannel, `Using desktop CLR CLI payload: ${desktopCliPath}`);
       log(this.outputChannel, `Using debug adapter command: ${desktopCliPath} ${adapterArgs.join(' ')}`);
       log(this.outputChannel, `Adapter cwd: ${adapterOptions.cwd || '(default)'}`);
@@ -385,7 +392,8 @@ class SharpDbgAdapterDescriptorFactory {
       dotnetPath = cfg.get('dotnetPath') || 'dotnet';
     }
 
-    const adapterArgs = [dllPath, '--interpreter=vscode', `--engineLogging=${engineLogPath}`];
+    const adapterArgs = [dllPath, '--interpreter=vscode'];
+    if (engineLogPath) adapterArgs.push(`--engineLogging=${engineLogPath}`);
     log(this.outputChannel, `Using debug adapter command: ${dotnetPath} ${adapterArgs.join(' ')}`);
     log(this.outputChannel, `Adapter cwd: ${adapterOptions.cwd || '(default)'}`);
     return new vscode.DebugAdapterExecutable(dotnetPath, adapterArgs, adapterOptions);
